@@ -1,4 +1,5 @@
 /knime
+/neo4j/db
 *.prefs
 
 *.pdf
