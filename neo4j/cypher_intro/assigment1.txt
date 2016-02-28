@@ -1,0 +1,60 @@
+// Assigment 1 - Analytics path
+
+// Script to import gene data
+
+LOAD CSV WITH HEADERS FROM "file:/Users/iancastillor/Documents/big_data/neo4j/neo4j_module_datasets/gene_gene_associations_50k.csv" AS row
+MERGE (n:TrialGene {Name: row.OFFICIAL_SYMBOL_A})
+MERGE (m:TrialGene {Name: row.OFFICIAL_SYMBOL_B})
+MERGE (n)-[r:AssociationType {AssociationWith:row.EXPERIMENTAL_SYSTEM}]->(m);
+
+// 1. Calculate number of nodes in the graph. 
+// R: 9656
+match (n:TrialGene)
+return count(n)
+
+// 2. Calculate the number of edges in the graph. 
+// R: 46621
+match (n:TrialGene)-[r]->()
+return count(r)
+
+// 3. Calculate the number of loops in the graph. 
+// R: 1221
+match (n)-[r]->(n)
+return count(n)
+
+// 4. Submit the following query and interpret the results of the query in Step 4 above.
+// R: The count of all non loop edges between every adjacent node pair.
+match (n)-[r]->(m) 
+where m <> n 
+return distinct n, m, count(r)
+
+// 5. Submit the following query and report the results.
+// R: The pair of nodes with the maximum number of multi-edges between them
+match (n)-[r]->(m) 
+where m <> n 
+return distinct n, m, count(r) as myCount 
+order by myCount desc limit 1
+
+// 6. Run the following query and interpret the results.
+// R: The 2-neighborhood of the node whose name is ‘BRCA1’
+match p=(n {Name:'BRCA1'})-[:AssociationType*..2]->(m) 
+return p
+
+// 7. Count how many shortest paths there are between the node named ‘BRCA1’ and the node named ‘NBR1’. 
+// R: 9
+match p = allShortestPaths(source-[r:AssociationType*]-destination)
+where source.Name='BRCA1' AND destination.Name = 'NBR1'
+return extract(n in nodes(p)| n.Name) as Paths
+
+// 9. Find the top 2 nodes with the highest outdegree. 
+// R: SNCA	and BRCA1
+match (n:TrialGene)-[r]->()
+return n.Name as Node, count(r) as Outdegree
+order by Outdegree desc limit 2
+
+// 10. Modify one of the Cypher queries we provided and create the degree histogram for the network, then calculate how many nodes are in the graph having a degree of 3.
+// R: 
+match (n:TrialGene)-[r]-()
+with n as nodes, count(distinct r) as degree
+return degree, count(nodes) order by degree asc
+

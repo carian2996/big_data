@@ -5,23 +5,19 @@ return n, r, m
 
 //Finding paths between specific nodes*:
 
-match p=(a)-[:TO*]-(c)
+match p=(a)-[:TO*]->(c)
 where a.Name='H' and c.Name='P'
-return p limit 1
-
-*Your results might not be the same as the video hands-on demo. If not, try the following query and it should return the shortest path between nodes H and P:
-
-match p=(a)-[:TO*]-(c) where a.Name='H' and c.Name='P' return p order by length(p) asc limit 1
+return p order by length(p) asc limit 1
 
 //Finding the length between specific nodes:
 
-match p=(a)-[:TO*]-(c)
+match p=(a)-[:TO*]->(c)
 where a.Name='H' and c.Name='P'
 return length(p) limit 1
 
 //Finding a shortest path between specific nodes:
 
-match p=shortestPath((a)-[:TO*]-(c))
+match p=shortestPath((a)-[:TO*]->(c))
 where a.Name='A' and c.Name='P'
 return p, length(p) limit 1
 
