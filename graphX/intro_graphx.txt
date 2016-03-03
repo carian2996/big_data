@@ -1,0 +1,318 @@
+===== Building A Graph =====
+============================
+
+1. Start the Cloudera VM and Upload the datasets to HDFS
+2. Import the GraphX libraries
+3. Import the Vertices
+4. Import the Edges
+5. Create a Graph
+6. Use Spark’s filter method to return Vertices in the graph
+
+===== Upload the datasets to HDFS =====
+
+unzip ExamplesOfAnalytics.zip
+
+cd ExamplesOfAnalytics
+
+hdfs dfs -put EOADATA
+
+spark-shell --jars lib/gs-core-1.2.jar, lib/gs-ui-1.2.jar, lib/jcommon-1.0.16.jar, lib/jfreechart-1.0.13.jar, lib/breeze_2.10-0.9.jar, lib/breeze-viz_2.10-0.9.jar, lib/pherd-1.0.jar
+
+===== Import the GraphX libraries =====
+
+import org.apache.log4j.Logger 
+import org.apache.log4j.Level
+Logger.getLogger("org").setLevel(Level.ERROR) 
+Logger.getLogger("akka").setLevel(Level.ERROR)
+
+import org.apache.spark.graphx._ 
+import org.apache.spark.rdd._
+import scala.io.Source
+
+===== Import the Vertices =====
+
+Source.fromFile("./EOADATA/metro.csv").getLines().take(5).foreach(println)
+Source.fromFile("./EOADATA/country.csv").getLines().take(5).foreach(println)
+Source.fromFile("./EOADATA/metro_country.csv").getLines().take(5).foreach(println)
+
+class PlaceNode(val name: String) extends Serializable
+case class Metro(override val name: String, population: Int) extends PlaceNode(name)
+case class Country(override val name: String) extends PlaceNode(name)
+
+val metros: RDD[(VertexId, PlaceNode)] = 
+	sc.textFile("./EOADATA/metro.csv").
+		filter(! _.startsWith("#")). 
+		map {line =>
+			val row = line split ','
+			(0L + row(0).toInt, Metro(row(1), row(2).toInt)) 
+		}
+
+val countries: RDD[(VertexId, PlaceNode)] = 
+	sc.textFile("./EOADATA/country.csv").
+		filter(! _.startsWith("#")). 
+		map {line =>
+			val row = line split ','
+			(100L + row(0).toInt, Country(row(1))) 
+		}
+
+===== Import the Vertices =====
+
+val mclinks: RDD[Edge[Int]] = 
+	sc.textFile("./EOADATA/metro_country.csv").
+		filter(! _.startsWith("#")). 
+		map {line =>
+			val row = line split ','
+			Edge(0L + row(0).toInt, 100L + row(1).toInt, 1) 
+		}
+
+===== Create a Graph =====
+
+val nodes = metros ++ countries
+val metrosGraph = Graph(nodes, mclinks)
+
+metrosGraph.vertices.take(5)
+metrosGraph.edges.take(5)
+
+===== Use Spark’s filter method to return Vertices in the graph =====
+
+metrosGraph.edges.filter(_.srcId == 1).map(_.dstId).collect()
+metrosGraph.edges.filter(_.dstId == 103).map(_.srcId).collect()
+
+
+
+===== Building A Degree Histogram =====
+=======================================
+
+1. Count the number of vertices and edges
+2. Define a min and max function for Spark’s reduce method
+3. Compute min and max degrees
+4. Compute the histogram data of the degree of connectedness
+
+===== Count the number of vertices and edges =====
+
+metrosGraph.numEdges
+metrosGraph.numVertices
+
+===== Define a min and max function for Spark’s reduce method =====
+
+def max(a: (VertexId, Int), b: (VertexId, Int)): (VertexId, Int) = { 
+	if (a._2 > b._2) a else b
+}
+def min(a: (VertexId, Int), b: (VertexId, Int)): (VertexId, Int) = { 
+	if (a._2 <= b._2) a else b
+}
+
+===== Compute min and max degrees =====
+
+metrosGraph.outDegrees.reduce(max)
+metrosGraph.vertices.filter(_._1 == 5).collect()
+metrosGraph.inDegrees.reduce(max)
+metrosGraph.vertices.filter(_._1 == 108).collect()
+metrosGraph.outDegrees.filter(_._2 <= 1).count
+metrosGraph.degrees.reduce(max)
+metrosGraph.degrees.reduce(min)
+
+===== Compute the histogram data of the degree of connectedness =====
+
+metrosGraph.degrees.
+	filter { case (vid, count) => vid >= 100 }.
+	map(t => (t._2,t._1)). 
+	groupByKey.map(t => (t._1,t._2.size)). 
+	sortBy(_._1).collect()
+
+===== Plot the Degree Histogram =====
+=====================================
+
+1. Import the BreezeViz library
+2. Define a function to calculate the degree histogram
+3. Calculate the probability distribution for the degree histogram
+4. Graph the results
+
+===== Import the BreezeViz library =====
+
+import breeze.linalg._ 
+import breeze.plot._
+
+def degreeHistogram(net: Graph[PlaceNode, Int]): Array[(Int, Int)] = 
+	net.degrees.
+		filter { case (vid, count) => vid >= 100 }. 
+		map(t => (t._2,t._1)).
+		groupByKey.map(t => (t._1,t._2.size)). 
+		sortBy(_._1).collect()
+
+===== Calculate the probability distribution for the degree histogram =====
+
+val nn = metrosGraph.vertices.filter{ case (vid, count) => vid >= 100 }.count()
+val metroDegreeDistribution = degreeHistogram(metrosGraph).map({case(d,n) => (d,n.toDouble/nn)})
+
+===== Graph the results =====
+
+val f = Figure()
+val p1 = f.subplot(2,1,0)
+val x = new DenseVector(metroDegreeDistribution map (_._1.toDouble)) 
+val y = new DenseVector(metroDegreeDistribution map (_._2))
+
+p1.xlabel = "Degrees"
+p1.ylabel = "Distribution"
+p1 += plot(x, y)
+p1.title = "Degree distribution"
+
+val p2 = f.subplot(2,1,1)
+val metrosDegrees = metrosGraph.degrees.filter { case (vid, count) => vid >= 100 }.map(_._2).collect()
+
+p2.xlabel = "Degrees"
+p2.ylabel = "Histogram of node degrees" 
+p2 += hist(metrosDegrees, 20)
+
+===== Network Connectedness and Clustering Components =====
+=========================================================== 
+
+1. Create a new graph by adding the Continents dataset
+2. Import the GraphStream library
+3. Import countriesGraph into a GraphStream SingleGraph
+4. Visualize countriesGraph
+5. Visualize Facebook graph
+
+===== Create a new graph by adding the Continents dataset =====
+
+Source.fromFile("./EOADATA/continent.csv").getLines().take(5).foreach(println)
+Source.fromFile("./EOADATA/country_continent.csv").getLines().take(5).foreach(println )
+
+case class Continent(override val name: String) extends PlaceNode(name)
+
+val  continents: RDD[(VertexId, PlaceNode)] = 
+	sc.textFile("./EOADATA/continent.csv").
+		filter(! _.startsWith("#")).
+		map {line =>
+			val row = line split ','
+			(200L + row(0).toInt, Continent(row(1))) 
+		}
+
+val cclinks: RDD[Edge[Int]] = 
+	sc.textFile("./EOADATA/country_continent.csv").
+		filter(! _.startsWith("#")). 
+			map {line =>
+				val row = line split ','
+				Edge(100L + row(0).toInt, 200L + row(1).toInt, 1) 
+			}
+
+val cnodes = metros ++ countries ++ continents
+val clinks = mclinks ++ cclinks
+val countriesGraph = Graph(cnodes, clinks)
+
+===== Import the GraphStream library =====
+
+import org.graphstream.graph.implementations._
+
+val graph: SingleGraph = new SingleGraph("countriesGraph")
+
+graph.addAttribute("ui.stylesheet","url(file:.//style/stylesheet)") 
+graph.addAttribute("ui.quality")
+graph.addAttribute("ui.antialias")
+
+for ((id:VertexId, place:PlaceNode) <- countriesGraph.vertices.collect()) 
+{
+	val node = graph.addNode(id.toString).asInstanceOf[SingleNode] 
+	node.addAttribute("name", place.name) 
+	node.addAttribute("ui.label", place.name)
+
+	if (place.isInstanceOf[Metro]) 
+		node.addAttribute("ui.class", "metro")
+	else if(place.isInstanceOf[Country]) 
+		node.addAttribute("ui.class", "country")
+	else if(place.isInstanceOf[Continent]) 
+		node.addAttribute("ui.class", "continent")
+}
+
+for (Edge(x,y,_) <- countriesGraph.edges.collect()) { 
+	graph.addEdge(x.toString ++ y.toString, x.toString, y.toString, true).asInstanceOf[AbstractEdge] 
+}
+
+graph.display()
+
+===== Visualize Facebook graph =====
+
+cd ExamplesOfAnalytics
+
+ spark-shell --jars lib/gs-core-1.2.jar, lib/gs-ui-1.2.jar,lib/jcommon-1.0.16.jar, lib/jfreechart-1.0.13.jar, lib/breeze_2.10-0.9.jar, lib/breeze-viz_2.10-0.9.jar, lib/pherd-1.0.jar -i Facebook.scala
+
+ ===== Joining Graph Datasets =====
+ ==================================
+
+1. Create a new dataset
+2. Join two datasets with JoinVertices
+3. Join two datasets with outerJoinVertices
+4. Create a new return type for the joined vertices
+
+===== Run the Spark Shell =====
+
+spark-shell
+
+===== Create a new dataset =====
+
+import org.apache.log4j.Logger 
+import org.apache.log4j.Level
+
+Logger.getLogger("org").setLevel(Level.ERROR) 
+Logger.getLogger("akka").setLevel(Level.ERROR)
+
+import org.apache.spark.graphx._ 
+import org.apache.spark.rdd._
+
+val airports: RDD[(VertexId, String)] = sc.parallelize( 
+	List((1L, "Los Angeles International Airport"),
+		(2L, "Narita International Airport"),
+		(3L, "Singapore Changi Airport"),
+		(4L, "Charles de Gaulle Airport"),
+		(5L, "Toronto Pearson International Airport")))
+
+val flights: RDD[Edge[String]] = sc.parallelize( 
+	List(Edge(1L,4L,"AA1123"),
+		Edge(2L, 4L, "JL5427"), 
+		Edge(3L, 5L, "SQ9338"), 
+		Edge(1L, 5L, "AA6653"),
+		Edge(3L, 4L, "SQ4521")))
+
+val flightGraph = Graph(airports, flights)
+
+ flightGraph.triplets.foreach(t => println("Departs from: " + t.srcAttr + " - Arrives at: " + t.dstAttr + " - Flight Number: " + t.attr))
+
+case class AirportInformation(city: String, code: String)
+
+val airportInformation: RDD[(VertexId, AirportInformation)] = sc.parallelize( 
+	List((2L, AirportInformation("Tokyo", "NRT")),
+		(3L, AirportInformation("Singapore", "SIN")), 
+		(4L, AirportInformation("Paris", "CDG")),
+		(5L, AirportInformation("Toronto", "YYZ")), 
+		(6L, AirportInformation("London", "LHR")), 
+		(7L, AirportInformation("Hong Kong", "HKG"))))
+
+===== Join two datasets with JoinVertices =====
+def appendAirportInformation(id: VertexId, name: String, airportInformation: AirportInformation): String = name + ":"+ airportInformation.city
+
+val flightJoinedGraph = flightGraph.joinVertices(airportInformation)(appendAirportInformation)
+
+flightJoinedGraph.vertices.foreach(println)
+
+val flightOuterJoinedGraph = 
+flightGraph.outerJoinVertices(airportInformation)((_,name, airportInformation) => 
+(name, airportInformation))
+
+flightOuterJoinedGraph.vertices.foreach(println)
+
+val flightOuterJoinedGraphTwo = 
+flightGraph.outerJoinVertices(airportInformation)((_, name, airportInformation) => 
+(name, airportInformation.getOrElse(AirportInformation("NA","NA")))) 
+
+flightOuterJoinedGraphTwo.vertices.foreach(println)
+
+===== Create a new return type for the joined vertices =====
+
+case class Airport(name: String, city: String, code: String)
+
+val flightOuterJoinedGraphThree = 
+flightGraph.outerJoinVertices(airportInformation)((_, name, b) => b match {
+	case Some(airportInformation) => Airport(name, airportInformation.city, airportInformation.code)
+	case None => Airport(name, "", "") 
+})
+flightOuterJoinedGraphThree.vertices.foreach(println)
