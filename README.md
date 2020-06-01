@@ -1,4 +1,8 @@
 # UC San Diego: Big Data, Version 1 Specialization
+
+Certification [here](https://www.coursera.org/account/accomplishments/specialization/certificate/KZHPE3BE53T9)
+Specialization description [here](https://www.coursera.org/specializations/big-data-2015)
+
 I gained an understanding of what insights big data can provide through hands-on experience with the tools and systems used by big data scientists and engineers. 
 
 During this specialization I learned: 
